@@ -257,29 +257,25 @@ async def run(
     # Use trade updates to keep track of our portfolio
     @trading_ws.on(r"trade_update")
     async def handle_trade_update(conn, channel, data):
-        symbol = data.order["symbol"]
-
+        order = Order(data.order)
         # if trade originated somewhere else, disregard
-        if trading_data.open_orders.get(symbol) is None:
+        if trading_data.open_orders.get(order.client_order_id) is None:
             return
 
-        last_order = trading_data.open_orders.get(symbol)[0]
+        last_order = trading_data.open_orders.get(order.client_order_id)[0]
+        strategy = trading_data.open_orders.get(order.client_order_id)[3]
+        symbol = order.symbol
         if last_order is not None:
             tlog(f"trade update for {symbol} data={data}")
             event = data.event
 
             if event == "partial_fill":
-                await update_partially_filled_order(
-                    trading_data.open_order_strategy[symbol], Order(data.order)
-                )
+                await update_partially_filled_order(strategy, order)
             elif event == "fill":
-                await update_filled_order(
-                    trading_data.open_order_strategy[symbol], Order(data.order)
-                )
+                await update_filled_order(strategy, order)
             elif event in ("canceled", "rejected"):
                 trading_data.partial_fills[symbol] = 0
-                trading_data.open_orders[symbol] = None
-                trading_data.open_order_strategy[symbol] = None
+                trading_data.open_orders[order.client_order_id] = None
 
         else:
             tlog(f"{data.event} trade update for {symbol} WITHOUT ORDER")
@@ -296,7 +292,7 @@ async def run(
 
     @data_ws.on(r"A$")
     async def handle_second_bar(conn, channel, data):
-        #print(data)
+        # print(data)
         symbol = data.symbol
 
         # First, aggregate 1s bars for up-to-date MACD calculations

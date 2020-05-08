@@ -9,9 +9,7 @@ from talib import MACD, RSI
 from common import config
 from common.market_data import prev_closes, volume_today
 from common.tlog import tlog
-from common.trading_data import (buy_indicators, cool_down, latest_cost_basis,
-                                 open_order_strategy, open_orders,
-                                 sell_indicators, stop_prices,
+from common.trading_data import (cool_down, latest_cost_basis, stop_prices,
                                  symbol_resistance, target_prices)
 from fincalcs.support_resistance import (find_resistances, find_stop,
                                          find_supports)
@@ -195,7 +193,7 @@ class MomentumLong(Strategy):
                                 )
 
                                 try:
-                                    buy_indicators[symbol] = {
+                                    _indicators = {
                                         "rsi": rsi[-1].tolist(),
                                         "macd": macd1[-5:].tolist(),
                                         "macd_signal": macd_signal[
@@ -220,16 +218,13 @@ class MomentumLong(Strategy):
                                             )
                                         ),
                                     }
-                                    o = self.trading_api.submit_order(
+                                    await super().execute_buy_limit(
                                         symbol=symbol,
-                                        qty=str(shares_to_buy),
-                                        side="buy",
-                                        type="limit",
-                                        time_in_force="day",
-                                        limit_price=str(data.close),
+                                        qty=shares_to_buy,
+                                        price=data.close,
+                                        indicators=_indicators,
                                     )
-                                    open_orders[symbol] = (o, "buy")
-                                    open_order_strategy[symbol] = self
+
                                     return True
 
                                 except Exception:
@@ -307,7 +302,7 @@ class MomentumLong(Strategy):
 
             if to_sell:
                 try:
-                    sell_indicators[symbol] = {
+                    _indicators = {
                         "rsi": rsi[-2:].tolist(),
                         "movement": movement,
                         "sell_macd": macd[-5:].tolist(),
@@ -318,34 +313,26 @@ class MomentumLong(Strategy):
                             [str(elem) for elem in sell_reasons]
                         ),
                     }
-
                     if not partial_sell:
                         tlog(
                             f"[{self.name}] Submitting sell for {position} shares of {symbol} at market"
                         )
-                        o = self.trading_api.submit_order(
-                            symbol=symbol,
-                            qty=str(position),
-                            side="sell",
-                            type="market",
-                            time_in_force="day",
-                        )
-                    else:
-                        qty = int(position / 2)
-                        tlog(
-                            f"[{self.name}] Submitting sell for {str(qty)} shares of {symbol} at limit of {data.close}"
-                        )
-                        o = self.trading_api.submit_order(
-                            symbol=symbol,
-                            qty=str(qty),
-                            side="sell",
-                            type="limit",
-                            time_in_force="day",
-                            limit_price=str(data.close),
+                        await super().execute_sell_market(
+                            symbol=symbol, qty=position, indicators=_indicators
                         )
 
-                    open_orders[symbol] = (o, "sell")
-                    open_order_strategy[symbol] = self
+                    else:
+                        _qty = int(position / 2)
+                        tlog(
+                            f"[{self.name}] Submitting sell for {str(_qty)} shares of {symbol} at limit of {data.close}"
+                        )
+                        await super().execute_sell_limit(
+                            symbol=symbol,
+                            price=data.close,
+                            qty=_qty,
+                            indicators=_indicators,
+                        )
+
                     return True
                 except Exception:
                     error_logger.report_exception()
